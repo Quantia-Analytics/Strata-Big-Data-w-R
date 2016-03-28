@@ -1,0 +1,614 @@
+```{r setup, include=FALSE}
+opts_chunk$set(cache=TRUE)
+```
+
+Big data with R 
+========================================================
+author: Steve Elston
+date: March 29, 2016
+
+Big data packages for R
+========================================================
+
+Two viable alterntives:
+
+- **[R Hadoop ecosystem:](https://github.com/RevolutionAnalytics/RHadoop/wiki)** rmr2, rhdfs, rhbase, plyrmr, ravro
+- **[Tessera ecosystem:](http://tessera.io/)** datadr, trelliscope, Rhipe
+- Apply familar R funcitons with both alternatives
+
+Tessera overview
+========================================================
+
+Tessera encompases three packages:
+
+- **[datadr:](http://tessera.io/docs-datadr/)** abstracts most divide and recombine operations on map-reduce back-end
+- **[trelliscope:](http://tessera.io/docs-trelliscope/)** facilitates visualization of large complex datasets
+- **[RHIPE](http://tessera.io/docs-RHIPE/)** provides a backend interface to Hadoop
+
+Tessera stack
+========================================================
+
+![alt text](tessera-interface2.png)
+
+
+
+Distributed R object
+========================================================
+
+Distributing data by key-value pairs
+
+- **Distributed data object (ddo)**: values can be any R object, list, etc.
+- **Distributed data frame (ddf)** is a ddo containing data frames as the values
+
+
+
+Introduction to divide and recombine
+========================================================
+- Meaningful, persistent divisions of the data
+- Analytic or visual methods applied independently to each subset in embarrassingly parallel fashion
+- Results are recombined to yield a statistically valid D&R result or visualization
+
+
+Introduction to divide and recombine
+========================================================
+
+![alt text](drdiagram.png)
+
+
+
+
+Installing datadr
+========================================================
+
+Let's give it a try!
+
+```{r, eval=FALSE}
+## Install the packages and the housing data set from CRAN.
+#install.packages("devtools")
+#library(devtools)
+#options(repos = c(tessera = "http://packages.tessera.io",
+#                  getOption("repos")))
+install.packages(c("datadr", "trelliscope", "housingData"))
+```
+
+
+
+Introduction to division
+========================================================
+
+- "Big data" is typically big because it is made up of collections of many subsets, sensors, locations, time periods, etc.
+- Break the data up based on data structure and apply visual or analytical methods 
+- We call this conditioning variable division
+- In practice this approach is common and not new
+- Another option is random replicate division
+
+
+Create a distributed data frame with datadr
+========================================================
+```{r}
+library(datadr)
+library(housingData)
+housingDdf <- ddf(housing)
+```
+
+
+Examine the distributed data frame
+========================================================
+```{r}
+housingDdf
+```
+
+
+But there are no keys
+========================================================
+```{r}
+names(housingDdf)
+getKeys(housingDdf)
+```
+
+
+Dividing a dataset with datadr
+========================================================
+```{r}
+byCounty <- divide(housingDdf, 
+                   by = c("county", "state"), 
+                   update = TRUE)
+```
+
+
+How many keys are there?
+```{r}
+keys <- getKeys(byCounty)
+length(keys)
+```
+
+
+What are the keys?
+========================================================
+
+Example of keys:
+```{r}
+firstKey <- keys[[1]]
+firstKey
+```
+
+Look at the names:
+```{r}
+names(byCounty)
+```
+
+
+Look at one key-value pair
+========================================================
+```{r}
+byCounty[firstKey]
+```
+
+
+Summary of the result
+========================================================
+```{r}
+summary(byCounty)
+```
+
+
+Your turn
+========================================================
+
+Try the following:
+- Make sure you have opened **port 8100** (uses Shiny)
+- Load the datadr and housingData packages
+- Create a ddf from housing data frame
+- Divide your ddf by some interesting keys
+- Examine the keys
+
+
+A possible solution
+========================================================
+
+```{r}
+library(datadr)
+library(housingData)
+myDdf <- ddf(housing)
+myDdf <- divide(myDdf, 
+                   by = "time", 
+                   update = TRUE)
+newKeys <- getKeys(myDdf)
+length(newKeys)
+newKeys[[1]]
+```
+
+
+Adding a transform to a ddf
+========================================================
+Create and test a transform function
+
+```{r}
+totalSold <- function(x) {
+  sum(x$nSold, na.rm=TRUE)
+}
+totalSold(byCounty[[20]]$value)
+```
+
+
+Apply transform to a ddf
+========================================================
+Create new ddf with transform and look at a k-v pair
+```{r}
+byCountySold <- addTransform(byCounty, totalSold)
+byCountySold[[20]]
+```
+
+
+Join creates a ddo
+========================================================
+Join on common keys
+
+```{r}
+byCountyNSold <- drJoin(housing = byCounty, totalSold = byCountySold)
+getKeys(byCountyNSold)[[1]]
+```
+
+Examine the joined ddo
+========================================================
+```{r}
+byCountyNSold[[20]]$key
+byCountyNSold[[20]]$value$totalSold
+byCountyNSold[[20]]$value$housing
+```
+
+Your turn!
+========================================================
+Apply a transform to your ddf
+
+- Create a function to compute a summary statistic
+- Test your function on a subset of your ddf
+- Apply your function as a transform to your ddf
+- Examine the results
+
+
+A possible solution, part 1
+========================================================
+Create and test the function
+```{r}
+priceDiff <- function(x){
+  mean(x$medSoldPriceSqft - x$medListPriceSqft, na.rm = TRUE)
+  }
+priceDiff(myDdf[[1]]$value)
+```
+
+
+
+A possible solution, part 2
+========================================================
+Apply the transformation
+```{r}
+diffByMonth <- addTransform(myDdf, priceDiff)
+class(diffByMonth)
+diffByMonth[[1]]
+```
+
+
+Review
+========================================================
+Handle large data sets by dividing into key-value pairs
+- Keys index the data chunks
+- Data chunks are the values
+- k-v pairs can be ddo or ddf
+
+Transform data with addTransform
+- Most any R function
+- Uses lazy evaluation
+
+
+Some datadr functions for divisions
+========================================================
+- **drLapply():** apply a function to each subset of a ddo/ddf and obtain a new ddo/ddf
+- **drSample():** take a random sample of subsets of a ddo/ddf
+- **drFilter():** filter out subsets of a ddo/ddf that meet a specified criteria
+- **drSubset():** return a subset data frame of a ddf
+- **drRead.table()** and friends
+- **mrExec():** run a traditional MapReduce job on a ddo/ddf
+
+
+Division independent datadr methods
+========================================================
+- **drQuantile():** estimate all-data quantiles, optionally by a grouping variable
+- **drAggregate():** all-data tabulation
+- **drHexbin():** all-data hexagonal binning aggregation
+- **summary()** method computes numerically stable moments, other summary stats 
+
+
+Analytic recombination
+========================================================
+What is the class of the object created with the transform?
+
+```{r}
+class(byCountySold)
+```
+
+
+
+Analytic recombination
+========================================================
+The *combine* parameter of the *recombine* function controls the form of the result
+- **combine=combRbind:** combines all transformed key-value pairs into a local data frame - frequently used
+- **combine=combCollect:** transformed key-value pairs are collected into a local list in your R session
+- **combine=combDdo:** results are combined into a new ddo object
+- **combMeanCoef:** computes the mean of model coefficients
+- Others can be written for more sophisticated goals, such as, combining models, etc.
+
+
+Analytic recombination example
+========================================================
+Apply recombine to the ddo
+```{r}
+nSold <- recombine(byCountySold,
+                   combine=combRbind)
+```
+
+The result is a simple local dataframe
+```{r}
+class(nSold)
+names(nSold)
+```
+
+
+Your turn!
+========================================================
+- Start with the result of the last exercice
+- Examine the classs
+- Recombine the results
+- Examine the properties of the recombined results
+
+A posible solution, Part 1
+========================================================
+Class of transformation result
+```{r}
+class(diffByMonth)
+```
+
+Recombine the results
+```{r}
+diffByMonthdf <- recombine(diffByMonth,
+                   combine=combRbind)
+```
+
+
+A posible solution, Part 2
+========================================================
+The class of the recombined result
+```{r}
+class(diffByMonthdf)
+```
+
+The columns of the local data frame
+```{r}
+names(diffByMonthdf)
+```
+
+
+Visualization of large complex data sets
+========================================================
+Use Trelliscope for visual recombination
+- Trelliscope is specifically designed to visualize large complex datasets
+- Trelliscope visualizes k-v pairs
+- Displays are conditioned by keys
+- Trelliscope stores its displays in a "Visualization Database" (VDB), a collection of files on your disk containing metadata about the displays
+
+Setup for trelliscope
+========================================================
+To create and view displays, establish a connection to the VDB
+
+```{r}
+library(trelliscope)
+# establish a connection to a VDB located in a directory "housing_vdb"
+conn <- vdbConn("housing_vdb", autoYes = TRUE)
+conn
+```
+- If initialized, it simply makes the connection
+
+
+Creating a trelliscope display
+========================================================
+A Trelliscope display is created with the ```makeDisplay()``` function with minimum specification of:
+- data: a ddo or ddf input data set
+- name: the name of the display
+- panelFn: a function that operates on the value of each key-value pair and produces a plot
+- Display in browser with ```view()``` function.
+
+
+Recall our data set
+========================================================
+
+```{r}
+class(byCountyNSold)
+byCountyNSold[[20]]
+```
+
+
+
+Define a panel function
+========================================================
+Use ggplot2 to create a panel function
+```{r}
+saleSoldPannel <- function(xx){
+  yy <- xx$housing
+  ggplot(yy) + 
+    geom_point(aes(time, medListPriceSqft)) +
+    geom_point(aes(time, medSoldPriceSqft), color = "red", shape = 17) 
+}
+```
+
+
+
+Test the panel function
+========================================================
+Use ggplot2 to create a panel function
+```{r}
+saleSoldPannel(byCountyNSold[[1]]$value)
+```
+
+Make the trelliscope display
+========================================================
+
+
+```{r, eval=FALSE}
+makeDisplay(byCountyNSold,
+            name = "Strata",
+            desc = "List and sold price over time",
+            panelFn = saleSoldPannel, 
+            width = 400, height = 400
+)
+```
+
+
+How to sort a massive number of charts?
+========================================================
+"There seems no escape from asking the computer to sort out the displays to be displayed… To do this, the computer must judge the relative different displays, the relative importance of showing them. This means calculating some “diagnostic quantities.” … It seems natural to call such computer guiding diagnostics “cognostics”. We must learn to choose them, calculate them, and use them. Else we drown in a sea of many different displays."  John W. Tukey
+
+
+Cognositics with Trelliscope
+========================================================
+Cognostic function supplies guideance for visualization
+- Cognostic function takes a subset of the data as input and returns a named list of cognostics
+- **cog()** function can supply additional attributes like descriptions to help the viewer
+- **cogMean** provides cognostic based on mean
+- **cogRange** provides cognostic based on range
+- **cogHref** creates href cognostic 
+
+
+Create a cognostic function
+========================================================
+
+```{r}
+zillowCog <- function(x) {
+  # return a list of cognostics
+  list(
+    meanList = cogMean(x$housing$medListPriceSqft),
+    meanSold = cogMean(x$housing$medSoldPriceSqft),
+    totalSold = cog(x$totalSold, desc = "Total sold")
+  )
+}
+```
+
+
+Make the trelliscope display with cognostic
+========================================================
+
+
+```{r, eval=FALSE}
+makeDisplay(byCountyNSold,
+             name = "Strata cognostics",
+             desc = "List and sold price over time",
+             panelFn = saleSoldPannel,
+             cogFn = zillowCog,
+             width = 400, height = 400
+ )
+```
+
+
+
+Your turn!
+========================================================
+Extend and test the cognostic function
+- Create, test and apply a new transform (optional)
+- Join the resulting statistic to the ddo
+- Add the statistic to the cognostic function
+- Remember to use the ```view()``` function!
+
+**Or**, use one of the cognositc built in functions
+
+
+A possible solution, part 1
+========================================================
+
+```{r}
+priceDiff <- function(x){
+  y <- x$housing
+  mean(y$medSoldPriceSqft - y$medListPriceSqft, na.rm = TRUE)
+  }
+meanDiff <- addTransform(byCountyNSold, priceDiff)
+byCountyDiff <- drJoin(housing = byCounty, totalSold = byCountySold, 
+                       meanDiff = meanDiff)
+```
+
+
+A possible solution, part 2
+========================================================
+```{r}
+zillowCog2 <- function(x) {
+  # return a list of cognostics
+  list(
+    meanList = cogMean(x$housing$medListPriceSqft),
+    meanSold = cogMean(x$housing$medSoldPriceSqft),
+    totalSold = cog(x$totalSold, desc = "Total sold"),
+    meanDiff = cog(x$meanDiff, desc = "Mean sold-list price difference")
+  )
+}
+```
+
+
+A possible solution, part 3
+========================================================
+
+```{r, eval=FALSE}
+makeDisplay(byCountyDiff,
+             name = "Strata cognostics 2",
+             desc = "List and sold price over time 2",
+             panelFn = saleSoldPannel,
+             cogFn = zillowCog2,
+             width = 400, height = 400
+ )
+```
+
+
+Review
+========================================================
+Divide and recombine for large complex data sets
+- Division gives manageable sized data chunks
+- Division by keys into key-value pairs
+- Recombination can be analytic or visualization
+- Trelliscope enables large scale exploration of data
+- Cognostics used for computer guided visualization
+
+
+Scaling up
+========================================================
+Medium data sets can use multi-core and local disk connection
+```{r}
+require(parallel)
+options(defaultLocalDiskControl = localDiskControl(makeCluster(2)))
+strataDiskConn <- localDiskConn(file.path(tempdir(), "strataKV"), autoYes = TRUE)
+strataDiskConn
+```
+
+
+Adding data to local disk connection
+========================================================
+
+```{r}
+len <- dim(housing)[1]
+indx1 <- as.integer(len/2)
+indx2 <- indx1 + 1
+housingList <- kvPairs(
+    list('key1', housing[1:indx1, ]),
+    list('key2', housing[indx2:len, ])
+  )
+addData(strataDiskConn, housingList, overwrite = TRUE)
+list.files(strataDiskConn$loc)
+```
+
+
+Create a ddf on disk
+========================================================
+
+```{r}
+housingDdfDisk <- ddf(strataDiskConn, update = TRUE)
+housingDdfDisk
+```
+
+
+Create a new local disk connection
+========================================================
+
+```{r}
+byCountyDiskConn <- localDiskConn(file.path(tempdir(), "byCounty"), autoYes = TRUE)
+byCountyDiskConn
+```
+
+
+Divide the on-disk ddf
+========================================================
+
+```{r}
+byCountyDisk <- divide(housingDdfDisk,
+                   by = c("county", "state"), 
+                   output = byCountyDiskConn,
+                   update = TRUE, overwrite = TRUE)
+byCountyDisk
+```
+
+
+Try it with Hadoop
+========================================================
+Install instructions available for AWS and Azure
+
+- **[For EMR](https://github.com/tesseradata/install-emr)**
+- **[For HDInsight](https://github.com/tesseradata/install-hdinsight)**
+
+
+Your turn!
+========================================================
+Perhaps as homework try the following:
+- Create an on-disk ddo
+- Try dividing by keys
+- Apply a transform or visualize with Trelliscope
+
+
+Summary
+========================================================
+- Divide into meaningful, persistent divisions of the data
+- Analytic or visual methods applied independently to each subset in embarrassingly parallel fashion
+- Results are recombined to yield a statistically valid D&R result or visualization
+- Scale with multi-core and disk connection or HDFS connection on Hadoop cluster
